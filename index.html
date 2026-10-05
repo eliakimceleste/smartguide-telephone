@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1114">
+<title>Autoguidage Malvoyants</title>
+<style>
+/* Layout : écran unique, vidéo plein cadre en haut, panneau de commandes en bas, gros boutons tactiles. */
+:root{
+  --bg:#0d1114; --panel:#161c21; --line:#2a333b; --fg:#eef2f4; --muted:#93a1ab;
+  --accent:#ffd23f; --near:#ff5a4e; --ok:#4fd18b;
+  --display:"Atkinson Hyperlegible",system-ui,sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 var(--display);
+  padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+main{max-width:720px;margin:0 auto;padding-inline:16px;padding-block:12px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap}
+h1{font-size:1.25rem;margin:0;letter-spacing:.01em}
+.sub{color:var(--muted);font-size:.85rem}
+.stage{position:relative;width:100%;aspect-ratio:3/4;max-height:62vh;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+@media (min-aspect-ratio:1/1){.stage{aspect-ratio:16/9}}
+video,canvas.view,img.view{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+.hud{position:absolute;left:8px;top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:rgba(0,0,0,.65);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font:12px var(--mono);font-variant-numeric:tabular-nums}
+.alert{position:absolute;left:0;right:0;bottom:0;padding:12px 14px;background:rgba(0,0,0,.72);font-size:1.4rem;font-weight:700;min-height:3.2rem}
+.alert.near{color:var(--near)}
+.placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button,label.btn{flex:1 1 140px;min-height:56px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:700 1.05rem var(--display);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;text-align:center}
+button.primary{background:var(--accent);color:#111;border-color:var(--accent)}
+button:focus-visible,label.btn:focus-within,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5}
+details{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+summary{cursor:pointer;font-weight:700;min-height:32px}
+.grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:10px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field span{font-size:.9rem;color:var(--muted)}
+.field b{color:var(--fg);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=number],select{min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:1rem var(--display);padding:0 10px;width:100%}
+.note{font-size:.85rem;color:var(--muted)}
+ol.log{margin:0;padding-left:0;list-style:none;font:13px var(--mono);max-height:180px;overflow:auto;display:flex;flex-direction:column;gap:2px}
+ol.log li{display:flex;gap:10px}
+ol.log time{color:var(--muted)}
+.ok{color:var(--ok)}
+@media (prefers-reduced-motion:no-preference){.alert{transition:color .2s}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Autoguidage malvoyants</h1>
+    <span class="sub">Reproduction du prototype (SSD MobileNetV2, COCO)</span>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" playsinline muted></video>
+    <canvas class="view" id="overlay"></canvas>
+    <div class="placeholder" id="placeholder">Appuyez sur « Démarrer ».<br>Le téléphone demandera l'accès à la caméra.</div>
+    <div class="hud"><span class="chip" id="status">modèle : non chargé</span><span class="chip" id="fps">— img/s</span></div>
+    <div class="alert" id="alert" aria-live="polite"></div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="start">Démarrer</button>
+    <button id="stop" disabled>Arrêter</button>
+    <label class="btn" for="photo">Tester une photo<input id="photo" type="file" accept="image/*" hidden></label>
+  </div>
+
+  <details open>
+    <summary>Réglages</summary>
+    <div class="grid">
+      <label class="field"><span>Seuil d'alerte vocale : <b id="distOut">100</b> cm</span>
+        <input id="dist" type="range" min="50" max="400" step="10" value="100"></label>
+      <label class="field"><span>Confiance minimale : <b id="confOut">0.50</b></span>
+        <input id="conf" type="range" min="0.2" max="0.9" step="0.05" value="0.5"></label>
+      <label class="field"><span>Calcul de distance</span>
+        <select id="mode">
+          <option value="memoire">Formule du mémoire (largeur réelle 50 cm, focale 3067 px)</option>
+          <option value="classe">Amélioré : largeur réelle par type d'objet</option>
+        </select></label>
+      <label class="field"><span>Répéter une même alerte après : <b id="repOut">4</b> s</span>
+        <input id="rep" type="range" min="1" max="15" step="1" value="4"></label>
+      <label class="field"><span><input id="vib" type="checkbox" checked> Vibrer quand un objet est proche (Android)</span></label>
+    </div>
+  </details>
+
+  <details>
+    <summary>Calibrer la distance</summary>
+    <div class="grid">
+      <p class="note">Placez un seul objet bien visible (une chaise, une personne…) à une distance mesurée au mètre ruban, puis indiquez sa largeur réelle et sa distance. L'application en déduit la focale de votre caméra. C'est la même méthode que le mémoire (photo de référence à 180 cm d'un objet de 50 cm).</p>
+      <label class="field"><span>Largeur réelle de l'objet (cm)</span><input id="calW" type="number" value="50" min="5" max="500"></label>
+      <label class="field"><span>Distance mesurée caméra–objet (cm)</span><input id="calD" type="number" value="180" min="20" max="1000"></label>
+      <button id="calib">Calibrer sur l'objet le plus grand à l'écran</button>
+      <p class="note" id="calOut">Focale actuelle : réglage d'usine.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Journal des alertes</summary>
+    <ol class="log" id="log"></ol>
+  </details>
+</main>
+
+<script src="lib/tf.min.js"></script>
+<script src="lib/coco-ssd.min.js"></script>
+<script>
+// ---------- Paramètres repris du mémoire (annexe 3, figure 3.33) ----------
+// measured_distance=180, reference_real_width=50, reference_width_image=852 (image 1280x720)
+const REF = { distance: 180, realWidth: 50, imageWidth: 852, frameWidth: 1280 };
+const FOCAL_MEMOIRE = REF.imageWidth * REF.distance / REF.realWidth; // 3067.2 px pour 1280 px de large
+
+// Noms français (le mémoire lisait un labelmap_fr.txt) avec le genre pour « un / une ».
+const FR = {
+  person:["personne","f"],bicycle:["vélo","m"],car:["voiture","f"],motorcycle:["moto","f"],airplane:["avion","m"],
+  bus:["bus","m"],train:["train","m"],truck:["camion","m"],boat:["bateau","m"],"traffic light":["feu de circulation","m"],
+  "fire hydrant":["bouche d'incendie","f"],"stop sign":["panneau stop","m"],"parking meter":["parcmètre","m"],bench:["banc","m"],
+  bird:["oiseau","m"],cat:["chat","m"],dog:["chien","m"],horse:["cheval","m"],sheep:["mouton","m"],cow:["vache","f"],
+  elephant:["éléphant","m"],bear:["ours","m"],zebra:["zèbre","m"],giraffe:["girafe","f"],backpack:["sac à dos","m"],
+  umbrella:["parapluie","m"],handbag:["sac à main","m"],tie:["cravate","f"],suitcase:["valise","f"],frisbee:["frisbee","m"],
+  skis:["skis","m"],snowboard:["snowboard","m"],"sports ball":["ballon","m"],kite:["cerf-volant","m"],"baseball bat":["batte","f"],
+  "baseball glove":["gant","m"],skateboard:["skateboard","m"],surfboard:["planche de surf","f"],"tennis racket":["raquette","f"],
+  bottle:["bouteille","f"],"wine glass":["verre à vin","m"],cup:["tasse","f"],fork:["fourchette","f"],knife:["couteau","m"],
+  spoon:["cuillère","f"],bowl:["bol","m"],banana:["banane","f"],apple:["pomme","f"],sandwich:["sandwich","m"],orange:["orange","f"],
+  broccoli:["brocoli","m"],carrot:["carotte","f"],"hot dog":["hot-dog","m"],pizza:["pizza","f"],donut:["beignet","m"],cake:["gâteau","m"],
+  chair:["chaise","f"],couch:["canapé","m"],"potted plant":["plante en pot","f"],bed:["lit","m"],"dining table":["table","f"],
+  toilet:["toilette","f"],tv:["télévision","f"],laptop:["ordinateur portable","m"],mouse:["souris","f"],remote:["télécommande","f"],
+  keyboard:["clavier","m"],"cell phone":["téléphone","m"],microwave:["micro-ondes","m"],oven:["four","m"],toaster:["grille-pain","m"],
+  sink:["évier","m"],refrigerator:["réfrigérateur","m"],book:["livre","m"],clock:["horloge","f"],vase:["vase","m"],scissors:["ciseaux","m"],
+  "teddy bear":["ours en peluche","m"],"hair drier":["sèche-cheveux","m"],toothbrush:["brosse à dents","f"]
+};
+// Largeurs réelles typiques (cm) pour le mode amélioré.
+const WIDTH = { person:45, bicycle:60, car:180, motorcycle:80, bus:250, truck:250, "traffic light":35, "fire hydrant":30,
+  "stop sign":75, "parking meter":30, bench:150, dog:25, cat:15, cow:60, horse:60, backpack:30, handbag:30, suitcase:45,
+  umbrella:90, bottle:8, cup:9, chair:45, couch:200, "potted plant":40, bed:150, "dining table":120, toilet:40, tv:100,
+  laptop:34, "cell phone":7, microwave:50, oven:60, sink:60, refrigerator:70, book:15, clock:30, vase:15 };
+const DEFAULT_WIDTH = 50;
+const fr = c => FR[c] ? FR[c] : [c,"m"];
+
+// ---------- État ----------
+const $ = id => document.getElementById(id);
+const video=$("video"), overlay=$("overlay"), ctx=overlay.getContext("2d");
+let model=null, stream=null, running=false, lastSpoken={label:"",t:0}, frames=0, fpsT=performance.now();
+// Focale normalisée (focale en px / largeur de l'image) pour le mode amélioré ; ~70° de champ horizontal par défaut.
+let focalNorm = 0.5 / Math.tan(35*Math.PI/180);
+try{ const f=parseFloat(localStorage.getItem("focalNorm")); if(f>0) { focalNorm=f; $("calOut").textContent="Focale calibrée : "+f.toFixed(3)+" × largeur d'image."; } }catch(e){}
+
+const settings = () => ({ dist:+$("dist").value, conf:+$("conf").value, mode:$("mode").value, rep:+$("rep").value*1000, vib:$("vib").checked });
+for (const [id,out,fmt] of [["dist","distOut",v=>v],["conf","confOut",v=>(+v).toFixed(2)],["rep","repOut",v=>v]])
+  $(id).addEventListener("input",()=>{$(out).textContent=fmt($(id).value)});
+
+// ---------- Distance ----------
+// Formule exacte du mémoire : estimate_distance = (reference_real_width * focal_length) / (2 * object_width_image)
+function distanceMemoire(boxW, frameW){
+  const w1280 = boxW * REF.frameWidth / frameW;      // ramène la largeur à une image de 1280 px comme sur le Raspberry Pi
+  return REF.realWidth * FOCAL_MEMOIRE / (2 * w1280);
+}
+// Version corrigée : D = W_réelle * F / w (sans le facteur 2), avec une largeur réelle par classe.
+function distanceClasse(cls, boxW, frameW){
+  return (WIDTH[cls] || DEFAULT_WIDTH) * focalNorm * frameW / boxW;
+}
+const estimate = (d, frameW, mode) => mode==="memoire" ? distanceMemoire(d.bbox[2],frameW) : distanceClasse(d.class,d.bbox[2],frameW);
+
+// ---------- Voix ----------
+let frVoice=null;
+function pickVoice(){ const v=speechSynthesis.getVoices(); frVoice=v.find(x=>/^fr(-|_)FR/i.test(x.lang))||v.find(x=>/^fr/i.test(x.lang))||null; }
+if ("speechSynthesis" in window){ pickVoice(); speechSynthesis.onvoiceschanged=pickVoice; }
+function say(text){
+  if(!("speechSynthesis" in window)) return;
+  const u=new SpeechSynthesisUtterance(text); u.lang="fr-FR"; if(frVoice) u.voice=frVoice; u.rate=1.05;
+  speechSynthesis.speak(u);
+}
+function phrase(cls, cm){
+  const [nom,g]=fr(cls);
+  return (g==="f"?"une ":"un ")+nom+" à "+Math.round(cm)+" centimètres";   // même tournure que le mémoire : « un <objet> à <d> centimètre »
+}
+function log(text){
+  const li=document.createElement("li"); const t=document.createElement("time");
+  t.textContent=new Date().toLocaleTimeString("fr-FR"); li.append(t, document.createTextNode(text));
+  $("log").prepend(li); while($("log").children.length>50) $("log").lastChild.remove();
+}
+
+// ---------- Détection ----------
+async function loadModel(){
+  if(model) return model;
+  $("status").textContent="modèle : chargement…";
+  model = await cocoSsd.load({ base:"lite_mobilenet_v2", modelUrl:"model/model.json" });
+  $("status").textContent="modèle : prêt ("+tf.getBackend()+")";
+  return model;
+}
+
+function draw(dets, src, frameW, frameH, s){
+  overlay.width=frameW; overlay.height=frameH;
+  ctx.clearRect(0,0,frameW,frameH);
+  if(src) ctx.drawImage(src,0,0,frameW,frameH);
+  const lw=Math.max(2,frameW/300); ctx.lineWidth=lw; ctx.font=`bold ${Math.max(14,frameW/40)}px system-ui`;
+  for(const d of dets){
+    const [x,y,w,h]=d.bbox, near=d.cm<=s.dist;
+    ctx.strokeStyle= near ? "#ff5a4e" : "#ffd23f"; ctx.strokeRect(x,y,w,h);
+    const label=`${fr(d.class)[0]} ${Math.round(d.score*100)}% · ${Math.round(d.cm)} cm`;
+    const tw=ctx.measureText(label).width+10, th=parseInt(ctx.font.match(/\d+/))+8;
+    ctx.fillStyle= near ? "#ff5a4e" : "#ffd23f"; ctx.fillRect(x, Math.max(0,y-th), tw, th);
+    ctx.fillStyle="#111"; ctx.fillText(label, x+5, Math.max(th-6, y-6));
+  }
+}
+
+function handle(raw, frameW, frameH, src){
+  const s=settings();
+  const dets=raw.filter(d=>d.score>=s.conf).map(d=>({...d, cm:estimate(d,frameW,s.mode)}));
+  draw(dets, src, frameW, frameH, s);
+  // Comme dans le mémoire : seuls les objets à 100 cm ou moins sont annoncés ; on annonce le plus proche.
+  const near=dets.filter(d=>d.cm<=s.dist).sort((a,b)=>a.cm-b.cm)[0];
+  const box=$("alert");
+  if(near){
+    const txt=phrase(near.class, near.cm);
+    box.textContent=txt.charAt(0).toUpperCase()+txt.slice(1); box.className="alert near";
+    const now=performance.now();
+    if(!speechSynthesis.speaking && (near.class!==lastSpoken.label || now-lastSpoken.t>s.rep)){
+      say(txt); log(txt); lastSpoken={label:near.class,t:now};
+      if(s.vib && navigator.vibrate) navigator.vibrate(200);
+    }
+  } else {
+    box.textContent = dets.length ? "Rien à moins de "+s.dist+" cm ("+dets.length+" objet"+(dets.length>1?"s":"")+" plus loin)" : "Aucun objet détecté";
+    box.className="alert";
+  }
+  return dets;
+}
+
+let lastDets=[];
+async function loop(){
+  if(!running) return;
+  if(video.readyState>=2){
+    const raw=await model.detect(video, 20, 0.2);
+    lastDets=handle(raw, video.videoWidth, video.videoHeight, null);
+    frames++; const now=performance.now();
+    if(now-fpsT>1000){ $("fps").textContent=(frames*1000/(now-fpsT)).toFixed(1)+" img/s"; frames=0; fpsT=now; }
+  }
+  requestAnimationFrame(loop);
+}
+
+let wakeLock=null;
+async function start(){
+  $("start").disabled=true;
+  say("Démarrage du guidage");                 // débloque la synthèse vocale (geste de l'utilisateur requis sur mobile)
+  try{
+    await loadModel();
+    stream = await navigator.mediaDevices.getUserMedia({ audio:false,
+      video:{ facingMode:{ideal:"environment"}, width:{ideal:1280}, height:{ideal:720} } });
+    video.srcObject=stream; await video.play();
+    $("placeholder").hidden=true; running=true; $("stop").disabled=false;
+    try{ wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){}
+    say("Guidage actif"); loop();
+  }catch(e){
+    $("start").disabled=false;
+    const msg = !window.isSecureContext ? "La caméra exige une adresse https:// (ou localhost). Voir le guide, étape « Héberger »."
+      : e.name==="NotAllowedError" ? "Accès à la caméra refusé. Autorisez la caméra dans les réglages du navigateur puis réessayez."
+      : "Erreur : "+e.message;
+    $("placeholder").hidden=false; $("placeholder").textContent=msg; $("status").textContent="erreur";
+  }
+}
+function stop(){
+  running=false; stream?.getTracks().forEach(t=>t.stop()); stream=null; video.srcObject=null;
+  wakeLock?.release?.(); wakeLock=null; speechSynthesis.cancel();
+  $("start").disabled=false; $("stop").disabled=true; $("alert").textContent=""; ctx.clearRect(0,0,overlay.width,overlay.height);
+  $("placeholder").hidden=false; $("placeholder").textContent="Arrêté. Appuyez sur « Démarrer » pour reprendre.";
+}
+
+// Test sur une photo (utile sur ordinateur ou sans caméra)
+$("photo").addEventListener("change", async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  if(running) stop();
+  await loadModel();
+  const img=new Image(); img.src=URL.createObjectURL(f); await img.decode();
+  $("placeholder").hidden=true;
+  const raw=await model.detect(img, 20, 0.2);
+  lastDets=handle(raw, img.naturalWidth, img.naturalHeight, img);
+  window.__lastResult = lastDets.map(d=>({class:d.class,score:+d.score.toFixed(2),cm:Math.round(d.cm)}));
+  say($("alert").textContent);
+});
+
+// Calibration : F = largeur_px * distance / largeur_réelle (même principe que la photo de référence du mémoire)
+$("calib").addEventListener("click", ()=>{
+  const W=+$("calW").value, D=+$("calD").value;
+  const big=[...lastDets].sort((a,b)=>b.bbox[2]-a.bbox[2])[0];
+  if(!big || !(W>0) || !(D>0)){ $("calOut").textContent="Aucun objet détecté : démarrez la caméra ou chargez une photo d'abord."; return; }
+  const frameW = running ? video.videoWidth : overlay.width;
+  focalNorm = big.bbox[2]*D/W/frameW;
+  try{ localStorage.setItem("focalNorm", focalNorm); }catch(e){}
+  $("mode").value="classe";
+  WIDTH[big.class]=W;
+  $("calOut").textContent=`Calibré sur « ${fr(big.class)[0]} » : focale = ${focalNorm.toFixed(3)} × largeur d'image (${Math.round(focalNorm*frameW)} px). Mode amélioré activé.`;
+});
+
+$("start").addEventListener("click", start);
+$("stop").addEventListener("click", stop);
+document.addEventListener("visibilitychange", async ()=>{ if(running && document.visibilityState==="visible"){ try{ wakeLock=await navigator.wakeLock?.request("screen"); }catch(e){} } });
+</script>
+</body>
+</html>
