@@ -1,0 +1,17 @@
+# Service utilisateur systemd : lance SmartGuide à chaque démarrage du Pi.
+# Installation (voir README.md, étape 5) :
+#   mkdir -p ~/.config/systemd/user && cp smartguide.service ~/.config/systemd/user/
+#   systemctl --user enable --now smartguide
+#   sudo loginctl enable-linger $USER
+[Unit]
+Description=SmartGuide - detection d'obstacles et alerte vocale
+After=default.target
+
+[Service]
+WorkingDirectory=%h/smartguide-telephone/raspberry
+ExecStart=%h/smartguide-telephone/raspberry/venv/bin/python smartguide_pi.py --journal %h/smartguide-journal.csv
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
