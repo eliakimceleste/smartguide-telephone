@@ -29,7 +29,12 @@ python smartguide_fonctionnel.py --entree texte --voix texte    # tout au clavie
 python smartguide_fonctionnel.py --entree texte                 # au clavier, réponses avec gTTS
 python smartguide_fonctionnel.py                                # micro + Whisper + gTTS
 python smartguide_fonctionnel.py --entree texte --voix texte --erreur   # tester le recalcul
+python smartguide_fonctionnel.py --entree texte --voix fichier --depart marche   # sur un serveur
 ```
+
+**Sur un serveur** (sans haut-parleur ni micro), le son ne peut pas sortir : `--voix fichier`
+enregistre chaque phrase gTTS en mp3 dans `voix_sortie/`, à télécharger pour l'écouter.
+Le micro et la voix en direct se testent sur votre ordinateur.
 
 Avec le micro : **Entrée** pour parler, **Entrée** quand vous avez fini.
 La marche est simulée (option `--acceleration` pour aller plus ou moins vite, `0` = instantané).

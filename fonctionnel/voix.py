@@ -59,10 +59,13 @@ class Transcripteur:
 
 
 class Parole:
-    """Dit une phrase. mode : « gtts », « hors_ligne » ou « texte »."""
+    """Dit une phrase. mode : « gtts », « hors_ligne », « texte » ou « fichier »
+    (phrases gTTS enregistrées en mp3 dans `sortie`, pour un serveur sans haut-parleur)."""
 
-    def __init__(self, mode="gtts", dossier_cache=None):
+    def __init__(self, mode="gtts", dossier_cache=None, sortie="voix_sortie"):
         self.mode = mode
+        self.sortie = os.path.abspath(sortie)
+        self.numero = 0
         self.cache = dossier_cache or os.path.join(tempfile.gettempdir(), "smartguide_voix")
         os.makedirs(self.cache, exist_ok=True)
         self._moteur = None
@@ -71,11 +74,29 @@ class Parole:
         print(f"  SmartGuide : {texte}")
         if self.mode == "texte":
             return
+        if self.mode == "fichier":
+            self._fichier(texte)
+            return
         if self.mode == "gtts" and self._gtts(texte):
             return
         self._hors_ligne(texte)
 
+    def _fichier(self, texte):
+        source = self._mp3(texte)
+        if source is None:
+            print("  (gTTS injoignable : vérifier la connexion Internet)")
+            return
+        os.makedirs(self.sortie, exist_ok=True)
+        self.numero += 1
+        cible = os.path.join(self.sortie, f"{self.numero:03d}.mp3")
+        shutil.copyfile(source, cible)
+        print(f"  (voix : {cible})")
+
     def _gtts(self, texte):
+        fichier = self._mp3(texte)
+        return fichier is not None and _joue(fichier)
+
+    def _mp3(self, texte):
         """gTTS, avec un cache : une phrase déjà dite n'a plus besoin d'Internet."""
         fichier = os.path.join(self.cache, hashlib.sha1(texte.encode()).hexdigest() + ".mp3")
         if not os.path.exists(fichier):
@@ -85,8 +106,8 @@ class Parole:
             except Exception:
                 if os.path.exists(fichier):
                     os.remove(fichier)
-                return False
-        return _joue(fichier)
+                return None
+        return fichier
 
     def _hors_ligne(self, texte):
         try:

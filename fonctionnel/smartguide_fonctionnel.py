@@ -48,6 +48,11 @@ class Application:
 
     # ---------- boucle principale ----------
     def lance(self):
+        if self.args.position == "simulation":
+            depart = min(self.lieux, key=lambda i: geo.distance(self.position, self.plan.point(i)))
+            print(f"  (Marche simulée : départ de {self.lieux[depart]['nom']} ; option --depart pour changer)")
+        if self.args.voix == "fichier":
+            print(f"  (Les phrases sont enregistrées en mp3 dans {self.parole.sortie})")
         self.dit("Bonjour, je suis SmartGuide. Dites-moi où vous voulez aller.")
         while True:
             try:
@@ -83,8 +88,8 @@ class Application:
             self.dit("Dites par exemple : je veux aller à la pharmacie. Vous pouvez aussi dire : "
                      "où suis-je, répète, ou stop.")
         else:
-            self.dit("Je n'ai pas compris. Dites par exemple : je veux aller à "
-                     f"{next(iter(self.lieux.values()))['nom'].lower()}.")
+            self.dit("Je n'ai pas compris. Dites : je veux aller à, puis le nom du lieu. "
+                     + self.liste_destinations())
 
     def confirme(self, lieu):
         self.dit(f"Voulez-vous aller à : {self.lieux[lieu]['nom']} ? Répondez oui ou non.")
@@ -112,6 +117,9 @@ class Application:
         itineraire = self.plan.itineraire(self.position, lieu)
         if itineraire is None:
             self.dit(f"Je ne trouve pas de chemin vers {self.lieux[lieu]['nom']}.")
+            return
+        if itineraire.longueur() < 8:
+            self.dit(f"Vous êtes déjà à : {self.lieux[lieu]['nom']}.")
             return
         if self.args.position == "gpsd":
             source = gpsd()
@@ -151,7 +159,8 @@ def arguments(liste=None):
     p.add_argument("--destinations", default=os.path.join(ICI, "exemple", "destinations_exemple.json"))
     p.add_argument("--entree", choices=["micro", "texte"], default="micro",
                    help="micro = Whisper ; texte = taper les commandes")
-    p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte"], default="gtts")
+    p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte", "fichier"], default="gtts",
+                   help="fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
     p.add_argument("--modele", default="tiny", help="taille de Whisper : tiny, base, small")
     p.add_argument("--position", choices=["simulation", "gpsd"], default="simulation")
     p.add_argument("--depart", help="simulation : identifiant du lieu de départ")
