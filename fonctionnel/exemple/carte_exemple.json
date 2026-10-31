@@ -1,0 +1,116 @@
+{
+ "version": 0.6,
+ "generator": "exemple fictif SmartGuide",
+ "elements": [
+  {
+   "type": "node",
+   "id": 1,
+   "lat": 6.417,
+   "lon": 2.342
+  },
+  {
+   "type": "node",
+   "id": 2,
+   "lat": 6.4172695,
+   "lon": 2.342
+  },
+  {
+   "type": "node",
+   "id": 3,
+   "lat": 6.417539,
+   "lon": 2.342009
+  },
+  {
+   "type": "node",
+   "id": 4,
+   "lat": 6.4178983,
+   "lon": 2.342
+  },
+  {
+   "type": "node",
+   "id": 5,
+   "lat": 6.4182576,
+   "lon": 2.342
+  },
+  {
+   "type": "node",
+   "id": 6,
+   "lat": 6.4187966,
+   "lon": 2.342
+  },
+  {
+   "type": "node",
+   "id": 7,
+   "lat": 6.417539,
+   "lon": 2.3416836
+  },
+  {
+   "type": "node",
+   "id": 8,
+   "lat": 6.4182576,
+   "lon": 2.3424068
+  },
+  {
+   "type": "node",
+   "id": 9,
+   "lat": 6.4182576,
+   "lon": 2.3415028
+  },
+  {
+   "type": "node",
+   "id": 10,
+   "lat": 6.4185271,
+   "lon": 2.3420181
+  },
+  {
+   "type": "way",
+   "id": 101,
+   "nodes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    10,
+    6
+   ],
+   "tags": {
+    "highway": "residential",
+    "name": "Rue principale"
+   }
+  },
+  {
+   "type": "way",
+   "id": 102,
+   "nodes": [
+    3,
+    7
+   ],
+   "tags": {
+    "highway": "footway"
+   }
+  },
+  {
+   "type": "way",
+   "id": 103,
+   "nodes": [
+    5,
+    8
+   ],
+   "tags": {
+    "highway": "path"
+   }
+  },
+  {
+   "type": "way",
+   "id": 104,
+   "nodes": [
+    5,
+    9
+   ],
+   "tags": {
+    "highway": "footway"
+   }
+  }
+ ]
+}

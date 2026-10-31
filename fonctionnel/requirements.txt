@@ -1,0 +1,7 @@
+faster-whisper   # reconnaissance vocale (Whisper)
+sounddevice      # microphone
+numpy
+gTTS             # voix (Google, Internet nécessaire)
+pyttsx3          # voix hors ligne en secours
+requests         # téléchargement de la carte OpenStreetMap
+pytest           # tests
