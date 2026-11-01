@@ -13,6 +13,7 @@
     "amenity=school": "école",
     "amenity=kindergarten": "école maternelle",
     "amenity=college": "école supérieure",
+    "amenity=prep_school": "école",
     "amenity=university": "université",
     "amenity=fuel": "station-service",
     "amenity=bank": "banque",
@@ -21,22 +22,36 @@
     "amenity=fast_food": "restaurant",
     "amenity=cafe": "café",
     "amenity=bar": "bar",
+    "amenity=nightclub": "boîte de nuit",
+    "amenity=gambling": "salle de jeux",
     "amenity=police": "commissariat",
     "amenity=post_office": "poste",
     "amenity=townhall": "mairie",
     "amenity=bus_station": "gare routière",
     "amenity=taxi": "station de taxi",
+    "amenity=driving_school": "auto-école",
+    "amenity=training": "centre de formation",
     "shop=supermarket": "supermarché",
     "shop=bakery": "boulangerie",
     "shop=hairdresser": "coiffeur",
     "shop": "boutique",
     "tourism=hotel": "hôtel",
     "tourism=guest_house": "hôtel",
+    "tourism=apartment": "résidence",
     "leisure=park": "parc",
     "leisure=stadium": "stade",
+    "leisure=sports_centre": "centre sportif",
     "leisure=pitch": "terrain de sport",
     "office": "bureau",
     "healthcare": "centre de santé"
   },
-  "maison": {"nom": "Maison", "alias": ["chez moi", "la maison", "domicile", "rentrer"]}
+  "maison": {
+    "nom": "Maison",
+    "alias": [
+      "chez moi",
+      "la maison",
+      "domicile",
+      "rentrer"
+    ]
+  }
 }
