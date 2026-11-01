@@ -1,10 +1,12 @@
-"""Sources de position : le téléphone (via gpsd) ou un simulateur de marche.
+"""Sources de position : le téléphone (via gpsd), le GPS d'Android (Termux)
+ou un simulateur de marche.
 
 Chaque source est un itérateur de Mesure (position, cap de la tête, instant).
 """
 import json
 import random
 import socket
+import subprocess
 import time
 from dataclasses import dataclass
 
@@ -42,6 +44,28 @@ def gpsd(hote="127.0.0.1", port=2947):
                     vitesse = msg.get("speed", 0) or 0
                     cap = msg.get("track") if vitesse > 0.4 else None
                     yield Mesure((msg["lat"], msg["lon"]), cap, time.monotonic())
+
+
+def termux(intervalle=1.0):
+    """GPS du téléphone Android, quand le programme tourne dans Termux.
+
+    Utilise la commande `termux-location` (paquet termux-api et application
+    Termux:API). Sans boussole, le cap est celui de la marche.
+    """
+    while True:
+        debut = time.monotonic()
+        try:
+            sortie = subprocess.run(["termux-location", "-p", "gps", "-r", "once"],
+                                    capture_output=True, text=True, timeout=30).stdout
+            msg = json.loads(sortie)
+        except (subprocess.TimeoutExpired, ValueError):
+            msg = {}  # pas de position cette fois (intérieur, ciel couvert…) : on réessaie
+        if isinstance(msg, dict) and "latitude" in msg and "longitude" in msg:
+            cap = msg.get("bearing") if (msg.get("speed") or 0) > 0.4 else None
+            yield Mesure((msg["latitude"], msg["longitude"]), cap, time.monotonic())
+        attente = intervalle - (time.monotonic() - debut)
+        if attente > 0:
+            time.sleep(attente)
 
 
 class Simulateur:

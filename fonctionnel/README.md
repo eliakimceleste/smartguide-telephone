@@ -68,6 +68,32 @@ Les mots dits pour chaque type de lieu sont dans `categories_osm.json`, modifiab
 `carte_zone.json` et `mes_lieux.json` contiennent la position de votre maison : ils sont
 ignorés par Git pour ne pas être publiés.
 
+## Sur le téléphone Android (Termux), en marchant
+
+Le téléphone joue le rôle de la carte du casque : même code, avec le GPS, le micro
+et le haut-parleur d'Android.
+
+1. Installer **Termux** et **Termux:API** depuis F-Droid (f-droid.org ; les versions du
+   Play Store sont anciennes et ne marchent pas ensemble). Ouvrir Termux:API une fois.
+2. Dans Termux :
+   ```bash
+   pkg update && pkg install python git termux-api mpv
+   pip install gTTS requests
+   git clone https://github.com/eliakimceleste/smartguide-telephone.git
+   cd smartguide-telephone/fonctionnel
+   python osm.py --centre 6.4170,2.3420 --rayon 1000 --sortie carte_zone.json
+   ```
+3. Autoriser Termux:API à utiliser la **localisation** et le **micro** (Android le demande
+   au premier usage ; sinon Paramètres > Applications > Termux:API > Autorisations).
+4. Lancer, dehors (le GPS marche mal à l'intérieur) :
+   ```bash
+   python smartguide_fonctionnel.py --carte carte_zone.json --position termux --entree android
+   ```
+   **Entrée** pour parler : la reconnaissance vocale d'Android remplace Whisper (Whisper
+   ne s'installe pas dans Termux). Les réponses sont dites avec gTTS (lu par `mpv`), ou par
+   la voix d'Android sans Internet. `--entree texte` pour taper au clavier.
+   **Ctrl+C** (touche CTRL de Termux + C) arrête un guidage.
+
 ## Avec la vraie position du téléphone
 
 Le téléphone envoie sa position GPS à l'application GPSd Forwarder, reçue par `gpsd` sur le PC

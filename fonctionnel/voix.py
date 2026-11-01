@@ -40,6 +40,16 @@ class Ecoute:
         return np.concatenate(morceaux)[:, 0]
 
 
+def ecoute_android():
+    """Reconnaissance vocale d'Android, quand le programme tourne dans Termux
+    (commande `termux-speech-to-text`). Remplace Whisper sur le téléphone."""
+    input("  [Entrée] pour parler…")
+    print("  J'écoute…")
+    sortie = subprocess.run(["termux-speech-to-text"], capture_output=True, text=True).stdout
+    lignes = [l.strip() for l in sortie.splitlines() if l.strip()]
+    return lignes[-1] if lignes else ""
+
+
 class Transcripteur:
     """Whisper via faster-whisper. Le modèle est téléchargé au premier usage."""
 
@@ -123,14 +133,16 @@ class Parole:
             return
         except Exception:
             pass
-        if shutil.which("espeak-ng"):
+        if shutil.which("termux-tts-speak"):  # voix d'Android, dans Termux
+            subprocess.run(["termux-tts-speak", "-l", "fr", texte], check=False)
+        elif shutil.which("espeak-ng"):
             subprocess.run(["espeak-ng", "-v", "fr", texte], check=False)
 
 
 def _joue(fichier):
     """Joue un mp3 avec le premier lecteur disponible."""
     for commande in (["mpg123", "-q"], ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet"],
-                     ["afplay"]):
+                     ["mpv", "--no-video", "--really-quiet"], ["afplay"]):
         if shutil.which(commande[0]):
             return subprocess.run(commande + [fichier], check=False).returncode == 0
     try:

@@ -14,8 +14,8 @@ from collections import Counter
 from commandes import SEUIL_SANS_CONFIRMATION, candidats_destination, interprete
 from guidage import Guide, metres
 from osm import plan_depuis_osm
-from position import Simulateur, gpsd
-from voix import Ecoute, Parole, Transcripteur
+from position import Simulateur, gpsd, termux
+from voix import Ecoute, Parole, Transcripteur, ecoute_android
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 
@@ -56,6 +56,10 @@ class Application:
     def entend(self):
         if self.args.entree == "texte":
             return input("  Vous : ")
+        if self.args.entree == "android":
+            texte = ecoute_android()
+            print(f"  Vous (reconnu par Android) : {texte}")
+            return texte
         texte = self.whisper.transcrit(self.ecoute.enregistre())
         print(f"  Vous (transcrit) : {texte}")
         return texte
@@ -68,6 +72,11 @@ class Application:
     def lance(self):
         print(f"  ({len(self.lieux)} destinations chargées"
               + (f", {len(self.plan.ignores)} ignorées car trop loin d'une rue)" if self.plan.ignores else ")"))
+        if self.args.position != "simulation":
+            print("  (Recherche de la position GPS…)")
+            premiere = next(gpsd() if self.args.position == "gpsd" else termux())
+            self.position = premiere.position
+            print(f"  (Position trouvée : à {metres(geo.distance(self.position, self.plan.point(self.plan.plus_proche(self.position)[0])))} d'une rue de la carte)")
         if self.args.position == "simulation":
             depart = min(self.lieux, key=lambda i: geo.distance(self.position, self.plan.point(i)))
             print(f"  (Marche simulée : départ de {self.lieux[depart]['nom']} ; option --depart pour changer)")
@@ -150,8 +159,9 @@ class Application:
         if itineraire.longueur() < 8:
             self.dit(f"Vous êtes déjà à : {self.lieux[lieu]['nom']}.")
             return
-        if self.args.position == "gpsd":
-            source = gpsd()
+        if self.args.position in ("gpsd", "termux"):
+            print("  (Recherche de la position GPS…)")
+            source = gpsd() if self.args.position == "gpsd" else termux()
             premiere = next(source)
             self.position, self.cap = premiere.position, premiere.cap
             itineraire = self.plan.itineraire(self.position, lieu)
@@ -186,12 +196,14 @@ def arguments(liste=None):
     p.add_argument("--carte", default=os.path.join(ICI, "exemple", "carte_exemple.json"),
                    help="carte OpenStreetMap téléchargée avec osm.py")
     p.add_argument("--destinations", help="optionnel : fichier de lieux absents d'OpenStreetMap")
-    p.add_argument("--entree", choices=["micro", "texte"], default="micro",
-                   help="micro = Whisper ; texte = taper les commandes")
+    p.add_argument("--entree", choices=["micro", "texte", "android"], default="micro",
+                   help="micro = Whisper ; texte = taper les commandes ; "
+                        "android = reconnaissance vocale du téléphone (Termux)")
     p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte", "fichier"], default="gtts",
                    help="fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
     p.add_argument("--modele", default="tiny", help="taille de Whisper : tiny, base, small")
-    p.add_argument("--position", choices=["simulation", "gpsd"], default="simulation")
+    p.add_argument("--position", choices=["simulation", "gpsd", "termux"], default="simulation",
+                   help="termux = GPS du téléphone Android")
     p.add_argument("--depart", help="simulation : lieu de départ, par son nom (défaut : maison)")
     p.add_argument("--acceleration", type=float, default=3.0,
                    help="simulation : vitesse de la marche simulée (0 = sans attente)")
