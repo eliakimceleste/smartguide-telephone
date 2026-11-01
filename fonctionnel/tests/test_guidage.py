@@ -1,13 +1,7 @@
-import os
-
 import geo
+from aides import PLAN, ident
 from guidage import Guide, metres, mot_direction
-from osm import plan_depuis_osm
 from position import Simulateur
-
-ICI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PLAN = plan_depuis_osm(os.path.join(ICI, "exemple", "carte_exemple.json"),
-                       os.path.join(ICI, "exemple", "destinations_exemple.json"))
 
 
 def test_geo():
@@ -27,12 +21,13 @@ def test_mots():
 
 
 def test_plus_court_chemin():
-    it = PLAN.itineraire(PLAN.point("maison"), "pharmacie")
-    assert it.destination == "Pharmacie"
+    it = PLAN.itineraire(PLAN.point("maison"), ident("Pharmacie du Carrefour"))
+    assert it.destination == "Pharmacie du Carrefour"
     assert 180 < it.longueur() < 215   # 5 + 140 + 52 m environ
 
 
 def _marche(depart, arrivee, **options):
+    arrivee = ident(arrivee)
     it = PLAN.itineraire(PLAN.point(depart), arrivee)
     guide = Guide(it)
     sim = Simulateur(it.points, acceleration=0, **options)
@@ -50,13 +45,13 @@ def _marche(depart, arrivee, **options):
 
 
 def test_arrivee_et_virage():
-    dits = _marche("maison", "pharmacie")
-    assert dits[-1] == "Destination atteinte : Pharmacie."
+    dits = _marche("maison", "Pharmacie du Carrefour")
+    assert dits[-1] == "Destination atteinte : Pharmacie du Carrefour."
     assert "Tournez à droite maintenant." in dits
     assert any(d.startswith("Dans ") and "tournez à droite" in d for d in dits)
 
 
 def test_recalcul_apres_erreur():
-    dits = _marche("maison", "eglise", ecarts={n: 90.0 for n in range(20, 40)})
+    dits = _marche("maison", "Église Saint-Michel", ecarts={n: 90.0 for n in range(20, 40)})
     assert "Vous avez quitté le trajet, je recalcule." in dits
-    assert dits[-1] == "Destination atteinte : Église."
+    assert dits[-1] == "Destination atteinte : Église Saint-Michel."

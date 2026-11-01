@@ -1,0 +1,14 @@
+{
+  "_note": "Optionnel : lieux absents d'OpenStreetMap. Coordonnées FICTIVES.",
+  "destinations": {
+    "chez_ami": {
+      "nom": "Chez Koffi",
+      "alias": [
+        "chez mon ami",
+        "koffi"
+      ],
+      "lat": 6.4185271,
+      "lon": 2.3422712
+    }
+  }
+}

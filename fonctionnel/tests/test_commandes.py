@@ -1,29 +1,34 @@
-import json
-import os
-
 import pytest
 
+from aides import LIEUX, ident
 from commandes import interprete, normalise
-
-ICI = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LIEUX = json.load(open(os.path.join(ICI, "exemple", "destinations_exemple.json"), encoding="utf-8"))["destinations"]
 
 
 def test_normalise():
     assert normalise("  Où suis-je ? ") == "ou suis je"
 
 
-@pytest.mark.parametrize("phrase, lieu", [
-    ("Je veux aller à la pharmacie", "pharmacie"),
-    ("emmène-moi au marché", "marche"),
-    ("Guide-moi vers l'église.", "eglise"),
-    ("la boutique", "boutique"),
-    ("je voudrais rentrer chez moi", "maison"),
-    ("aller à la farmacie", "pharmacie"),      # erreur de transcription
+@pytest.mark.parametrize("phrase, nom", [
+    ("emmène-moi au marché", "Marché du quartier"),
+    ("Guide-moi vers l'église.", "Église Saint-Michel"),
+    ("je voudrais rentrer chez moi", "Maison"),
+    ("je veux aller à la pharmacie les cocotiers", "Pharmacie Les Cocotiers"),
+    ("aller aux Cocotiers", "Pharmacie Les Cocotiers"),
+    ("chez mon ami", "Chez Koffi"),
 ])
-def test_destination(phrase, lieu):
+def test_destination(phrase, nom):
     cmd = interprete(phrase, LIEUX)
-    assert cmd.type == "aller" and cmd.lieu == lieu
+    assert cmd.type == "aller" and cmd.lieu == ident(nom)
+
+
+def test_type_de_lieu_donne_tous_les_candidats():
+    cmd = interprete("je veux aller à la pharmacie", LIEUX)
+    assert set(cmd.candidats) == {ident("Pharmacie du Carrefour"), ident("Pharmacie Les Cocotiers")}
+
+
+def test_erreur_de_transcription():
+    cmd = interprete("aller à la farmacie", LIEUX)
+    assert cmd.type == "aller" and ident("Pharmacie Les Cocotiers") in cmd.candidats
 
 
 def test_destination_inconnue():

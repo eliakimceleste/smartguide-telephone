@@ -46,6 +46,7 @@ class Commande:
     texte: str
     lieu: str = None          # identifiant du lieu pour « aller »
     confiance: float = 0.0    # 0 à 1, qualité de la reconnaissance du lieu
+    candidats: list = None    # tous les lieux possibles (ex. toutes les pharmacies)
 
 
 def _contient(texte, expression):
@@ -57,7 +58,9 @@ def _score(morceau, nom):
     if not morceau or not nom:
         return 0.0
     if _contient(morceau, nom):
-        return 1.0
+        # Un nom long contenu dans la phrase l'emporte sur un nom court :
+        # « pharmacie les cocotiers » préfère ce lieu précis à « pharmacie ».
+        return 1.0 + len(nom) / 1000
     meilleur = difflib.SequenceMatcher(None, morceau, nom).ratio()
     # Compare aussi avec chaque groupe de mots de la même longueur que le nom.
     mots, n = morceau.split(), len(nom.split())
@@ -67,26 +70,35 @@ def _score(morceau, nom):
     return meilleur
 
 
-def trouve_destination(texte, lieux):
-    """Renvoie (identifiant, confiance) du lieu le plus proche de la phrase."""
+def candidats_destination(texte, lieux):
+    """Renvoie ([identifiants à égalité], confiance) des lieux qui ressemblent
+    le plus à la phrase. Plusieurs lieux à égalité = même type de lieu
+    (« la pharmacie ») : l'application choisit alors le plus proche."""
     phrase = normalise(texte)
     for intro in sorted(INTRO_DESTINATION, key=len, reverse=True):
         if phrase.startswith(intro + " ") or f" {intro} " in f" {phrase} ":
             phrase = phrase.split(intro, 1)[1].strip() or phrase
             break
     phrase = re.sub(r"^(la|le|l|les|du|de la|des) ", "", phrase)
-    meilleur, confiance = None, 0.0
+    scores = {}
     for ident, lieu in lieux.items():
         if not lieu.get("destination", True):
             continue
         for nom in [lieu["nom"], *lieu.get("alias", [])]:
             nom = re.sub(r"^(la|le|l|les) ", "", normalise(nom))
-            s = _score(phrase, nom)
-            if s > confiance:
-                meilleur, confiance = ident, s
-    if confiance < SEUIL_DESTINATION:
-        return None, confiance
-    return meilleur, confiance
+            scores[ident] = max(scores.get(ident, 0.0), _score(phrase, nom))
+    if not scores:
+        return [], 0.0
+    meilleur = max(scores.values())
+    if meilleur < SEUIL_DESTINATION:
+        return [], min(meilleur, 1.0)
+    return [i for i, sc in scores.items() if sc >= meilleur - 1e-9], min(meilleur, 1.0)
+
+
+def trouve_destination(texte, lieux):
+    """Renvoie (identifiant, confiance) du lieu le plus ressemblant, ou (None, confiance)."""
+    candidats, confiance = candidats_destination(texte, lieux)
+    return (candidats[0] if candidats else None), confiance
 
 
 def interprete(texte, lieux):
@@ -98,13 +110,13 @@ def interprete(texte, lieux):
         if any(_contient(phrase, m) for m in mots):
             # « aide-moi à aller à la bibliothèque » reste une demande de destination.
             if type_ in ("aide", "appeler", "oui", "non"):
-                lieu, conf = trouve_destination(texte, lieux)
-                if lieu and conf >= SEUIL_SANS_CONFIRMATION:
-                    return Commande("aller", texte, lieu, conf)
+                candidats, conf = candidats_destination(texte, lieux)
+                if candidats and conf >= SEUIL_SANS_CONFIRMATION:
+                    return Commande("aller", texte, candidats[0], conf, candidats)
             return Commande(type_, texte)
-    lieu, conf = trouve_destination(texte, lieux)
-    if lieu:
-        return Commande("aller", texte, lieu, conf)
+    candidats, conf = candidats_destination(texte, lieux)
+    if candidats:
+        return Commande("aller", texte, candidats[0], conf, candidats)
     if any(_contient(phrase, m) for m in ["aller", "emmene", "guide", "direction"]):
         return Commande("aller", texte, None, conf)  # destination demandée mais pas comprise
     return Commande("inconnu", texte, confiance=conf)

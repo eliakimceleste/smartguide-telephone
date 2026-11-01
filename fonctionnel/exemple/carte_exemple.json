@@ -1,6 +1,6 @@
 {
  "version": 0.6,
- "generator": "exemple fictif SmartGuide",
+ "generator": "exemple fictif SmartGuide (coordonnées inventées)",
  "elements": [
   {
    "type": "node",
@@ -111,6 +111,73 @@
    "tags": {
     "highway": "footway"
    }
+  },
+  {
+   "type": "node",
+   "id": 900001,
+   "lat": 6.417539,
+   "lon": 2.3416203,
+   "tags": {
+    "name": "Boutique Chez Awa",
+    "shop": "convenience"
+   }
+  },
+  {
+   "type": "node",
+   "id": 900002,
+   "lat": 6.4182576,
+   "lon": 2.3424701,
+   "tags": {
+    "name": "Pharmacie du Carrefour",
+    "amenity": "pharmacy"
+   }
+  },
+  {
+   "type": "way",
+   "id": 900003,
+   "center": {
+    "lat": 6.4182576,
+    "lon": 2.3414395
+   },
+   "tags": {
+    "name": "Église Saint-Michel",
+    "amenity": "place_of_worship",
+    "religion": "christian",
+    "building": "church"
+   }
+  },
+  {
+   "type": "node",
+   "id": 900004,
+   "lat": 6.4188505,
+   "lon": 2.342,
+   "tags": {
+    "name": "Marché du quartier",
+    "amenity": "marketplace"
+   }
+  },
+  {
+   "type": "node",
+   "id": 900005,
+   "lat": 6.4172695,
+   "lon": 2.3420723,
+   "tags": {
+    "name": "Pharmacie Les Cocotiers",
+    "amenity": "pharmacy"
+   }
+  },
+  {
+   "type": "node",
+   "id": 900006,
+   "lat": 6.4178983,
+   "lon": 2.3419729,
+   "tags": {
+    "name": "Kiosque sans type"
+   }
   }
+ ],
+ "centre": [
+  6.4169551,
+  2.342
  ]
 }

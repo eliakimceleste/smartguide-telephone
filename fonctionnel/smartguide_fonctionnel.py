@@ -3,13 +3,15 @@
 Fonctionne sur PC sans le casque. Exemples :
     python smartguide_fonctionnel.py --entree texte --voix texte       # tout au clavier
     python smartguide_fonctionnel.py                                    # micro + Whisper + gTTS, marche simulée
-    python smartguide_fonctionnel.py --position gpsd --carte carte_zone.json --destinations mes_lieux.json
+    python smartguide_fonctionnel.py --carte carte_zone.json                # votre zone (lieux pris dans OpenStreetMap)
 """
 import argparse
 import os
 
 import geo
-from commandes import SEUIL_SANS_CONFIRMATION, interprete
+from collections import Counter
+
+from commandes import SEUIL_SANS_CONFIRMATION, candidats_destination, interprete
 from guidage import Guide, metres
 from osm import plan_depuis_osm
 from position import Simulateur, gpsd
@@ -24,15 +26,31 @@ class Application:
         self.plan = plan_depuis_osm(args.carte, args.destinations)
         self.lieux = {i: self.plan.lieux[i] for i in self.plan.destinations()}
         self.parole = Parole(args.voix)
-        noms = [l["nom"] for l in self.lieux.values()]
         if args.entree == "micro":
             print("Chargement de Whisper…")
             self.ecoute = Ecoute()
-            self.whisper = Transcripteur(args.modele, noms)
-        depart = args.depart or next(iter(self.lieux))
-        self.position = self.plan.point(depart)   # position simulée au repos
+            self.whisper = Transcripteur(args.modele, self.exemples_de_lieux())
+        self.position = self.plan.point(self.lieu_de_depart())   # position simulée au repos
         self.cap = None
         self.dernier = ""
+
+    def lieu_de_depart(self):
+        """--depart accepte un identifiant ou un nom (« maison », « pharmacie les cocotiers »)."""
+        if self.args.depart in self.lieux:
+            return self.args.depart
+        if self.args.depart:
+            candidats, _ = candidats_destination(self.args.depart, self.lieux)
+            if candidats:
+                return candidats[0]
+        return "maison" if "maison" in self.lieux else next(iter(self.lieux))
+
+    def exemples_de_lieux(self, combien=6):
+        """Maison, les types de lieux les plus courants, puis les lieux personnels sans type."""
+        types = Counter(l.get("categorie") for l in self.lieux.values() if l.get("categorie"))
+        exemples = ["maison"] if "maison" in types else []
+        exemples += [t for t, _ in types.most_common() if t != "maison"][:combien]
+        exemples += [l["nom"] for l in self.lieux.values() if not l.get("categorie")][:3]
+        return exemples
 
     # ---------- entrée ----------
     def entend(self):
@@ -48,6 +66,8 @@ class Application:
 
     # ---------- boucle principale ----------
     def lance(self):
+        print(f"  ({len(self.lieux)} destinations chargées"
+              + (f", {len(self.plan.ignores)} ignorées car trop loin d'une rue)" if self.plan.ignores else ")"))
         if self.args.position == "simulation":
             depart = min(self.lieux, key=lambda i: geo.distance(self.position, self.plan.point(i)))
             print(f"  (Marche simulée : départ de {self.lieux[depart]['nom']} ; option --depart pour changer)")
@@ -70,10 +90,12 @@ class Application:
         if cmd.type == "aller":
             if cmd.lieu is None:
                 self.dit("Je n'ai pas compris la destination. " + self.liste_destinations())
-            elif cmd.confiance >= SEUIL_SANS_CONFIRMATION or self.confirme(cmd.lieu):
-                self.guide(cmd.lieu)
             else:
-                self.dit("D'accord, j'annule. " + self.liste_destinations())
+                lieu = self.plus_proche(cmd.candidats or [cmd.lieu])
+                if cmd.confiance >= SEUIL_SANS_CONFIRMATION or self.confirme(lieu):
+                    self.guide(lieu)
+                else:
+                    self.dit("D'accord, j'annule. " + self.liste_destinations())
         elif cmd.type == "destinations":
             self.dit(self.liste_destinations())
         elif cmd.type == "ou_suis_je":
@@ -88,8 +110,7 @@ class Application:
             self.dit("Dites par exemple : je veux aller à la pharmacie. Vous pouvez aussi dire : "
                      "où suis-je, répète, ou stop.")
         else:
-            self.dit("Je n'ai pas compris. Dites : je veux aller à, puis le nom du lieu. "
-                     + self.liste_destinations())
+            self.dit("Je n'ai pas compris. " + self.liste_destinations())
 
     def confirme(self, lieu):
         self.dit(f"Voulez-vous aller à : {self.lieux[lieu]['nom']} ? Répondez oui ou non.")
@@ -100,8 +121,16 @@ class Application:
             self.dit("Répondez oui ou non.")
         return False
 
+    def plus_proche(self, candidats):
+        """Parmi plusieurs lieux du même type, le plus proche de la position."""
+        lieu = min(candidats, key=lambda i: geo.distance(self.position, self.plan.point(i)))
+        if len(candidats) > 1:
+            print(f"  ({len(candidats)} lieux possibles, le plus proche est choisi)")
+        return lieu
+
     def liste_destinations(self):
-        return "Vous pouvez aller à : " + ", ".join(l["nom"] for l in self.lieux.values()) + "."
+        return ("Dites par exemple : " + ", ".join(self.exemples_de_lieux())
+                + ", ou le nom d'un lieu.")
 
     def ou_suis_je(self):
         proche = min(self.lieux, key=lambda i: geo.distance(self.position, self.plan.point(i)))
@@ -156,14 +185,14 @@ def arguments(liste=None):
     p = argparse.ArgumentParser(description="SmartGuide : voix, destination, itinéraire et guidage.")
     p.add_argument("--carte", default=os.path.join(ICI, "exemple", "carte_exemple.json"),
                    help="carte OpenStreetMap téléchargée avec osm.py")
-    p.add_argument("--destinations", default=os.path.join(ICI, "exemple", "destinations_exemple.json"))
+    p.add_argument("--destinations", help="optionnel : fichier de lieux absents d'OpenStreetMap")
     p.add_argument("--entree", choices=["micro", "texte"], default="micro",
                    help="micro = Whisper ; texte = taper les commandes")
     p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte", "fichier"], default="gtts",
                    help="fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
     p.add_argument("--modele", default="tiny", help="taille de Whisper : tiny, base, small")
     p.add_argument("--position", choices=["simulation", "gpsd"], default="simulation")
-    p.add_argument("--depart", help="simulation : identifiant du lieu de départ")
+    p.add_argument("--depart", help="simulation : lieu de départ, par son nom (défaut : maison)")
     p.add_argument("--acceleration", type=float, default=3.0,
                    help="simulation : vitesse de la marche simulée (0 = sans attente)")
     p.add_argument("--erreur", action="store_true", help="simulation : s'écarter du trajet pour tester le recalcul")

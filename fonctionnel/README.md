@@ -45,20 +45,28 @@ Phrases comprises : « je veux aller à la pharmacie », « emmène-moi au march
 
 ## Passer à votre zone
 
-1. Télécharger la carte autour de chez vous (latitude,longitude copiée depuis Google Maps
-   ou OpenStreetMap ; rayon en mètres) :
+1. Télécharger la carte autour de chez vous : latitude,longitude de la maison (clic droit
+   sur Google Maps) et rayon en mètres (distance du lieu le plus loin + 200 m environ) :
    ```bash
    python osm.py --centre 6.4170,2.3420 --rayon 1000 --sortie carte_zone.json
    ```
-2. Copier `exemple/destinations_exemple.json` en `mes_lieux.json` et y mettre vos 4 ou 5 lieux :
-   nom, autres façons de le dire (`alias`), latitude et longitude de l'entrée.
-3. Lancer :
+   La carte contient les rues **et les lieux nommés** d'OpenStreetMap (pharmacies, églises,
+   mosquées, marchés, écoles, boutiques…) : ce sont les destinations, rien à saisir.
+   Le centre devient la destination « Maison » (« chez moi »).
+2. Lancer :
    ```bash
-   python smartguide_fonctionnel.py --carte carte_zone.json --destinations mes_lieux.json --depart maison
+   python smartguide_fonctionnel.py --carte carte_zone.json
    ```
+   « emmène-moi à la pharmacie » choisit la pharmacie la plus proche ; le nom exact
+   (« la pharmacie Les Cocotiers ») choisit ce lieu-là. `--depart` accepte un nom de lieu.
 
-Si un lieu est à plus de 80 m d'une rue de la carte, le programme le signale : vérifier ses
-coordonnées, ou ajouter la ruelle sur openstreetmap.org.
+Ce que SmartGuide connaît = ce qu'affiche openstreetmap.org sur votre quartier. Un lieu
+manquant : l'ajouter sur openstreetmap.org (puis retélécharger), ou dans un petit fichier
+optionnel sur le modèle de `exemple/mes_lieux_exemple.json`, donné avec `--destinations`.
+Les mots dits pour chaque type de lieu sont dans `categories_osm.json`, modifiable.
+
+`carte_zone.json` et `mes_lieux.json` contiennent la position de votre maison : ils sont
+ignorés par Git pour ne pas être publiés.
 
 ## Avec la vraie position du téléphone
 
@@ -68,7 +76,7 @@ Le téléphone envoie sa position GPS à l'application GPSd Forwarder, reçue pa
 ```bash
 sudo apt install gpsd
 sudo gpsd -N -n udp://0.0.0.0:29998        # même port que dans GPSd Forwarder
-python smartguide_fonctionnel.py --position gpsd --carte carte_zone.json --destinations mes_lieux.json
+python smartguide_fonctionnel.py --position gpsd --carte carte_zone.json
 ```
 
 Sans boussole, l'orientation vient du sens de la marche : elle n'est connue que quand on avance.
@@ -86,7 +94,8 @@ python -m pytest -q tests
 | `smartguide_fonctionnel.py` | programme principal |
 | `voix.py` | micro, Whisper, gTTS |
 | `commandes.py` | comprendre la phrase et la destination |
-| `osm.py` | télécharger la carte et en faire un plan |
+| `osm.py` | télécharger la carte (rues et lieux) et en faire un plan |
+| `categories_osm.json` | mot dit pour chaque type de lieu OpenStreetMap |
 | `itineraire.py` | plus court chemin (Dijkstra) |
 | `guidage.py` | consignes pas à pas |
 | `position.py` | position du téléphone (gpsd) ou marche simulée |
