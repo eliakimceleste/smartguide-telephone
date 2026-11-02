@@ -15,7 +15,7 @@ from commandes import SEUIL_SANS_CONFIRMATION, candidats_destination, interprete
 from guidage import Guide, metres
 from osm import plan_depuis_osm
 from position import Simulateur, gpsd, termux
-from voix import Ecoute, Parole, Transcripteur, ecoute_android
+from voix import Ecoute, Parole, Transcripteur, WhisperCpp, ecoute_android, enregistre_termux
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 
@@ -30,6 +30,9 @@ class Application:
             print("Chargement de Whisper…")
             self.ecoute = Ecoute()
             self.whisper = Transcripteur(args.modele, self.exemples_de_lieux())
+        elif args.entree == "termux":
+            self.whisper = WhisperCpp(os.path.expanduser(args.whisper_cpp), args.modele,
+                                      self.exemples_de_lieux())
         self.position = self.plan.point(self.lieu_de_depart())   # position simulée au repos
         self.cap = None
         self.dernier = ""
@@ -59,6 +62,10 @@ class Application:
         if self.args.entree == "android":
             texte = ecoute_android()
             print(f"  Vous (reconnu par Android) : {texte}")
+            return texte
+        if self.args.entree == "termux":
+            texte = self.whisper.transcrit(enregistre_termux(os.path.join(self.parole.cache, "micro")))
+            print(f"  Vous (transcrit par Whisper en {self.whisper.duree:.1f} s) : {texte}")
             return texte
         texte = self.whisper.transcrit(self.ecoute.enregistre())
         print(f"  Vous (transcrit) : {texte}")
@@ -196,12 +203,15 @@ def arguments(liste=None):
     p.add_argument("--carte", default=os.path.join(ICI, "exemple", "carte_exemple.json"),
                    help="carte OpenStreetMap téléchargée avec osm.py")
     p.add_argument("--destinations", help="optionnel : fichier de lieux absents d'OpenStreetMap")
-    p.add_argument("--entree", choices=["micro", "texte", "android"], default="micro",
+    p.add_argument("--entree", choices=["micro", "texte", "android", "termux"], default="micro",
                    help="micro = Whisper ; texte = taper les commandes ; "
-                        "android = reconnaissance vocale du téléphone (Termux)")
+                        "termux = micro du téléphone + Whisper (whisper.cpp), en français ; "
+                        "android = reconnaissance vocale d'Android (en anglais seulement)")
     p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte", "fichier"], default="gtts",
                    help="fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
     p.add_argument("--modele", default="tiny", help="taille de Whisper : tiny, base, small")
+    p.add_argument("--whisper-cpp", default="~/whisper.cpp",
+                   help="--entree termux : dossier de whisper.cpp")
     p.add_argument("--position", choices=["simulation", "gpsd", "termux"], default="simulation",
                    help="termux = GPS du téléphone Android")
     p.add_argument("--depart", help="simulation : lieu de départ, par son nom (défaut : maison)")

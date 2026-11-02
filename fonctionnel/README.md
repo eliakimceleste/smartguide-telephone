@@ -83,16 +83,31 @@ et le haut-parleur d'Android.
    cd smartguide-telephone/fonctionnel
    python osm.py --centre 6.4170,2.3420 --rayon 1000 --sortie carte_zone.json
    ```
-3. Autoriser Termux:API à utiliser la **localisation** et le **micro** (Android le demande
-   au premier usage ; sinon Paramètres > Applications > Termux:API > Autorisations).
-4. Lancer, dehors (le GPS marche mal à l'intérieur) :
+3. Installer **Whisper** sur le téléphone (whisper.cpp, compilé une fois, environ 10 minutes) :
    ```bash
-   python smartguide_fonctionnel.py --carte carte_zone.json --position termux --entree android
+   pkg install clang cmake make ffmpeg
+   git clone https://github.com/ggml-org/whisper.cpp.git ~/whisper.cpp
+   cd ~/whisper.cpp
+   cmake -B build -DCMAKE_BUILD_TYPE=Release
+   cmake --build build -j 4 --target whisper-cli
+   sh models/download-ggml-model.sh tiny
+   cd ~/smartguide-telephone/fonctionnel
    ```
-   **Entrée** pour parler : la reconnaissance vocale d'Android remplace Whisper (Whisper
-   ne s'installe pas dans Termux). Les réponses sont dites avec gTTS (lu par `mpv`), ou par
-   la voix d'Android sans Internet. `--entree texte` pour taper au clavier.
-   **Ctrl+C** (touche CTRL de Termux + C) arrête un guidage.
+4. Autoriser Termux:API à utiliser la **localisation** et le **micro** (Android le demande
+   au premier usage ; sinon Paramètres > Applications > Termux:API > Autorisations).
+5. Lancer, dehors (le GPS marche mal à l'intérieur) :
+   ```bash
+   python smartguide_fonctionnel.py --carte carte_zone.json --position termux --entree termux
+   ```
+   **Entrée** pour parler, **Entrée** quand on a fini : le micro du téléphone enregistre,
+   puis Whisper transcrit en français, sans Internet. Le temps de transcription s'affiche,
+   pour mesurer la vitesse de Whisper. `--modele base` pour un modèle plus précis mais plus
+   lent (à télécharger de la même façon). Les réponses sont dites avec gTTS (lu par `mpv`).
+   `--entree texte` pour taper au clavier. **Ctrl+C** (touche CTRL de Termux + C) arrête un
+   guidage.
+
+   `--entree android` utilise la reconnaissance vocale d'Android, mais Termux:API la force
+   en anglais : elle ne convient pas à SmartGuide.
 
 ## Avec la vraie position du téléphone
 
@@ -118,7 +133,7 @@ python -m pytest -q tests
 | Fichier | Rôle |
 |---|---|
 | `smartguide_fonctionnel.py` | programme principal |
-| `voix.py` | micro, Whisper, gTTS |
+| `voix.py` | micro, Whisper (faster-whisper ou whisper.cpp), gTTS |
 | `commandes.py` | comprendre la phrase et la destination |
 | `osm.py` | télécharger la carte (rues et lieux) et en faire un plan |
 | `categories_osm.json` | mot dit pour chaque type de lieu OpenStreetMap |

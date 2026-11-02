@@ -3,6 +3,8 @@
 - Ecoute : enregistre le microphone pendant que l'on « appuie pour parler »
   (sur PC : Entrée pour commencer, Entrée pour finir).
 - Transcripteur : Whisper (faster-whisper), en français, sur le processeur.
+- Sur le téléphone (Termux) : micro d'Android enregistré, puis Whisper via
+  whisper.cpp (WhisperCpp), en français et sans Internet.
 - Parole : gTTS (Google, Internet nécessaire) comme dans le mémoire, avec
   une voix hors ligne (pyttsx3 / eSpeak) en secours, ou du texte à l'écran.
 """
@@ -12,6 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 
 FREQUENCE = 16000  # Hz, ce qu'attend Whisper
 
@@ -40,9 +43,40 @@ class Ecoute:
         return np.concatenate(morceaux)[:, 0]
 
 
+def enregistre_termux(dossier, duree_max=15):
+    """Enregistre le micro du téléphone (`termux-microphone-record`) en
+    « appuyer pour parler », puis le convertit en WAV 16 kHz mono pour Whisper."""
+    os.makedirs(dossier, exist_ok=True)
+    brut, wav = os.path.join(dossier, "ecoute.m4a"), os.path.join(dossier, "ecoute.wav")
+    for f in (brut, wav):
+        if os.path.exists(f):
+            os.remove(f)
+    input("  [Entrée] pour parler…")
+    subprocess.run(["termux-microphone-record", "-f", brut, "-l", str(duree_max)], capture_output=True)
+    input("  J'écoute… [Entrée] quand vous avez fini.")
+    subprocess.run(["termux-microphone-record", "-q"], capture_output=True)
+    # Android termine d'écrire le fichier juste après l'arrêt.
+    taille = -1
+    for _ in range(20):
+        time.sleep(0.1)
+        if os.path.exists(brut) and os.path.getsize(brut) == taille > 0:
+            break
+        taille = os.path.getsize(brut) if os.path.exists(brut) else -1
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", brut,
+                    "-ar", str(FREQUENCE), "-ac", "1", "-c:a", "pcm_s16le", wav], check=False)
+    return wav if os.path.exists(wav) else None
+
+
+def _indice(vocabulaire):
+    """Phrase donnée à Whisper pour l'aider à reconnaître les noms des destinations."""
+    if not vocabulaire:
+        return None
+    return "Commandes : aller à " + ", ".join(vocabulaire) + ". Oui. Non. Stop. Où suis-je ?"
+
+
 def ecoute_android():
-    """Reconnaissance vocale d'Android, quand le programme tourne dans Termux
-    (commande `termux-speech-to-text`). Remplace Whisper sur le téléphone."""
+    """Reconnaissance vocale d'Android (commande `termux-speech-to-text`).
+    Attention : Termux:API la force en anglais (en-US), quels que soient les réglages."""
     input("  [Entrée] pour parler…")
     print("  J'écoute…")
     sortie = subprocess.run(["termux-speech-to-text"], capture_output=True, text=True).stdout
@@ -57,15 +91,43 @@ class Transcripteur:
         from faster_whisper import WhisperModel
 
         self.modele = WhisperModel(modele, device="cpu", compute_type="int8")
-        # Donner les noms des destinations aide Whisper à les reconnaître.
-        self.indice = ("Commandes : aller à " + ", ".join(vocabulaire) + ". Oui. Non. Stop. Où suis-je ?"
-                       if vocabulaire else None)
+        self.indice = _indice(vocabulaire)
 
     def transcrit(self, audio):
         """`audio` : tableau numpy 16 kHz, ou chemin d'un fichier son."""
         segments, _ = self.modele.transcribe(audio, language="fr", beam_size=1,
                                              vad_filter=True, initial_prompt=self.indice)
         return " ".join(s.text.strip() for s in segments).strip()
+
+
+class WhisperCpp:
+    """Whisper sur le téléphone, via whisper.cpp compilé dans Termux.
+
+    `dossier` : le dossier de whisper.cpp ; `modele` : tiny, base, small…
+    (fichier models/ggml-<modele>.bin, téléchargé avec models/download-ggml-model.sh).
+    """
+
+    def __init__(self, dossier, modele="tiny", vocabulaire=()):
+        self.programme = os.path.join(dossier, "build", "bin", "whisper-cli")
+        self.modele = os.path.join(dossier, "models", f"ggml-{modele}.bin")
+        for fichier, aide in ((self.programme, "compiler whisper.cpp (voir le README)"),
+                              (self.modele, f"télécharger le modèle : sh models/download-ggml-model.sh {modele}")):
+            if not os.path.exists(fichier):
+                raise FileNotFoundError(f"{fichier} introuvable : {aide}")
+        self.indice = _indice(vocabulaire)
+        self.duree = 0.0  # secondes prises par la dernière transcription
+
+    def transcrit(self, wav):
+        if wav is None:
+            return ""
+        commande = [self.programme, "-m", self.modele, "-f", wav, "-l", "fr", "-nt", "-np",
+                    "-t", str(os.cpu_count() or 4)]
+        if self.indice:
+            commande += ["--prompt", self.indice]
+        debut = time.monotonic()
+        sortie = subprocess.run(commande, capture_output=True, text=True).stdout
+        self.duree = time.monotonic() - debut
+        return " ".join(l.strip() for l in sortie.splitlines() if l.strip())
 
 
 class Parole:
