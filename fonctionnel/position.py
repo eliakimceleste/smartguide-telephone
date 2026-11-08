@@ -3,10 +3,13 @@ ou un simulateur de marche.
 
 Chaque source est un itérateur de Mesure (position, cap de la tête, instant).
 """
+import atexit
 import json
+import os
 import random
 import socket
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 
@@ -46,26 +49,108 @@ def gpsd(hote="127.0.0.1", port=2947):
                     yield Mesure((msg["lat"], msg["lon"]), cap, time.monotonic())
 
 
-def termux(intervalle=1.0):
+class _FluxTermux:
+    """Positions du GPS d'Android lues en continu, en arrière-plan.
+
+    Un fil lit `termux-location -p gps -r updates` et garde toujours la
+    dernière position reçue : le guidage n'attend plus le GPS. Termux:API
+    donne au plus une position toutes les 5 secondes et arrête ce mode au
+    bout de 30 secondes : la commande est alors relancée aussitôt.
+    """
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._derniere = None      # dernière Mesure reçue
+        self._numero = 0           # nombre de positions reçues
+        self._fil = None
+        self._processus = None
+
+    def demarre(self):
+        with self._condition:
+            if self._fil is None:
+                self._fil = threading.Thread(target=self._lit, daemon=True)
+                self._fil.start()
+                atexit.register(self.arrete)
+
+    def arrete(self):
+        if self._processus and self._processus.poll() is None:
+            self._processus.terminate()
+
+    def _lit(self):
+        while True:
+            try:
+                self._processus = subprocess.Popen(
+                    ["termux-location", "-p", "gps", "-r", "updates"],
+                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+            except OSError:  # termux-location absent
+                time.sleep(2)
+                continue
+            tampon = ""
+            while True:
+                morceau = os.read(self._processus.stdout.fileno(), 4096)
+                if not morceau:
+                    break  # fin des 30 secondes : on relance
+                tampon = self._decoupe(tampon + morceau.decode("utf-8", "replace"))
+            self._processus.wait()
+            time.sleep(0.2)
+
+    def _decoupe(self, tampon):
+        """Extrait les positions complètes du texte reçu ; renvoie le reste.
+
+        La sortie est un tableau JSON qui arrive par morceaux :
+        « [ {...}, {...} ] ». On ne garde que les objets « {...} ».
+        """
+        decodeur = json.JSONDecoder()
+        while True:
+            debut = tampon.find("{")
+            if debut < 0:
+                return ""
+            try:
+                msg, fin = decodeur.raw_decode(tampon, debut)
+            except ValueError:
+                return tampon[debut:]  # objet incomplet : attendre la suite
+            tampon = tampon[fin:]
+            self._recoit(msg)
+
+    def _recoit(self, msg):
+        if isinstance(msg, dict) and "latitude" in msg and "longitude" in msg:
+            cap = msg.get("bearing") if (msg.get("speed") or 0) > 0.4 else None
+            mesure = Mesure((msg["latitude"], msg["longitude"]), cap, time.monotonic())
+            with self._condition:
+                self._derniere = mesure
+                self._numero += 1
+                self._condition.notify_all()
+
+    def mesures(self, fraicheur=6.0):
+        """Chaque nouvelle position, dès qu'elle arrive. Si le guidage a pris
+        du retard, les positions intermédiaires sont sautées : on donne
+        toujours la plus récente. Une position déjà reçue depuis moins de
+        `fraicheur` secondes est donnée tout de suite."""
+        self.demarre()
+        with self._condition:
+            recente = (self._derniere is not None
+                       and time.monotonic() - self._derniere.instant < fraicheur)
+            vu = self._numero - 1 if recente else self._numero
+        while True:
+            with self._condition:
+                while self._numero == vu:
+                    self._condition.wait()
+                vu = self._numero
+                mesure = self._derniere
+            yield mesure
+
+
+_flux_termux = _FluxTermux()
+
+
+def termux():
     """GPS du téléphone Android, quand le programme tourne dans Termux.
 
     Utilise la commande `termux-location` (paquet termux-api et application
-    Termux:API). Sans boussole, le cap est celui de la marche.
+    Termux:API), lue en continu en arrière-plan. Sans boussole, le cap est
+    celui de la marche.
     """
-    while True:
-        debut = time.monotonic()
-        try:
-            sortie = subprocess.run(["termux-location", "-p", "gps", "-r", "once"],
-                                    capture_output=True, text=True, timeout=30).stdout
-            msg = json.loads(sortie)
-        except (subprocess.TimeoutExpired, ValueError):
-            msg = {}  # pas de position cette fois (intérieur, ciel couvert…) : on réessaie
-        if isinstance(msg, dict) and "latitude" in msg and "longitude" in msg:
-            cap = msg.get("bearing") if (msg.get("speed") or 0) > 0.4 else None
-            yield Mesure((msg["latitude"], msg["longitude"]), cap, time.monotonic())
-        attente = intervalle - (time.monotonic() - debut)
-        if attente > 0:
-            time.sleep(attente)
+    return _flux_termux.mesures()
 
 
 class Simulateur:

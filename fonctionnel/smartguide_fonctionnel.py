@@ -57,6 +57,7 @@ class Application:
 
     # ---------- entrée ----------
     def entend(self):
+        self.parole.attend()  # ne pas enregistrer le micro pendant que le casque parle
         if self.args.entree == "texte":
             return input("  Vous : ")
         if self.args.entree == "android":
@@ -74,6 +75,19 @@ class Application:
     def dit(self, texte):
         self.dernier = texte
         self.parole.dit(texte)
+
+    def dit_en_fond(self, phrases):
+        """Pendant le guidage avec le vrai GPS : parler sans arrêter de lire
+        les positions. En simulation, les phrases sont dites une à une comme
+        avant (la marche simulée attend la voix, aucune consigne n'est sautée)."""
+        if not phrases:
+            return
+        if self.args.position == "simulation":
+            for texte in phrases:
+                self.dit(texte)
+            return
+        self.dernier = phrases[-1]
+        self.parole.dit_en_fond(phrases)
 
     # ---------- boucle principale ----------
     def lance(self):
@@ -179,21 +193,21 @@ class Application:
             source = iter(simulateur)
             self.cap = simulateur.cap
         guide = Guide(itineraire)
-        self.dit(guide.depart(self.position, self.cap))
+        self.dit_en_fond([guide.depart(self.position, self.cap)])
         try:
             for mesure in source:
                 self.position, self.cap = mesure.position, mesure.cap
                 etat = guide.mise_a_jour(mesure.position, mesure.cap, mesure.instant)
-                for message in etat.messages:
-                    self.dit(message)
-                if etat.arrive:
-                    return
-                if etat.recalcul:
+                phrases = list(etat.messages)
+                if etat.recalcul and not etat.arrive:
                     itineraire = self.plan.itineraire(mesure.position, lieu)
                     guide = Guide(itineraire)
                     if simulateur:
                         simulateur.nouveau_trajet(itineraire.points)
-                    self.dit(guide.depart(mesure.position, mesure.cap))
+                    phrases.append(guide.depart(mesure.position, mesure.cap))
+                self.dit_en_fond(phrases)
+                if etat.arrive:
+                    return
         except KeyboardInterrupt:
             self.dit("Guidage arrêté.")
 

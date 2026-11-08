@@ -141,8 +141,46 @@ class Parole:
         self.cache = dossier_cache or os.path.join(tempfile.gettempdir(), "smartguide_voix")
         os.makedirs(self.cache, exist_ok=True)
         self._moteur = None
+        self._verrou = threading.Lock()
+        self._en_attente = None    # phrases qui attendent d'être dites en fond
+        self._fil = None
 
     def dit(self, texte):
+        """Dit la phrase et attend la fin (après les phrases dites en fond)."""
+        self.attend()
+        self._dit(texte)
+
+    def dit_en_fond(self, phrases):
+        """Dit les phrases sans attendre : le guidage continue de lire le GPS
+        pendant qu'elles sont fabriquées et jouées. Si des phrases attendent
+        encore leur tour, les nouvelles les remplacent : elles correspondent
+        à une position plus récente."""
+        with self._verrou:
+            self._en_attente = list(phrases)
+            if self._fil is None:
+                self._fil = threading.Thread(target=self._parle_en_fond, daemon=True)
+                self._fil.start()
+
+    def attend(self):
+        """Attend que les phrases dites en fond soient finies."""
+        while True:
+            with self._verrou:
+                fil = self._fil
+            if fil is None:
+                return
+            fil.join()
+
+    def _parle_en_fond(self):
+        while True:
+            with self._verrou:
+                phrases, self._en_attente = self._en_attente, None
+                if not phrases:
+                    self._fil = None
+                    return
+            for texte in phrases:
+                self._dit(texte)
+
+    def _dit(self, texte):
         print(f"  SmartGuide : {texte}")
         if self.mode == "texte":
             return
