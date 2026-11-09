@@ -56,45 +56,62 @@ class _FluxTermux:
     dernière position reçue : le guidage n'attend plus le GPS. Termux:API
     donne au plus une position toutes les 5 secondes et arrête ce mode au
     bout de 30 secondes : la commande est alors relancée aussitôt.
+
+    Le flux ne tourne que tant qu'une source de positions est utilisée
+    (pendant le guidage) : il s'arrête ensuite, pour ne pas occuper
+    Termux:API pendant le dialogue (micro, voix).
     """
 
     def __init__(self):
         self._condition = threading.Condition()
         self._derniere = None      # dernière Mesure reçue
         self._numero = 0           # nombre de positions reçues
-        self._fil = None
+        self._clients = 0          # sources de positions en cours d'utilisation
+        self._generation = 0       # change à chaque démarrage ou arrêt du flux
         self._processus = None
+        atexit.register(self._arrete_tout)
 
-    def demarre(self):
+    # ---------- démarrage et arrêt (appelés avec self._condition) ----------
+    def _demarre(self):
+        self._generation += 1
+        threading.Thread(target=self._lit, args=(self._generation,), daemon=True).start()
+
+    def _arrete(self):
+        self._generation += 1
+        processus, self._processus = self._processus, None
+        if processus and processus.poll() is None:
+            processus.terminate()
+
+    def _arrete_tout(self):
         with self._condition:
-            if self._fil is None:
-                self._fil = threading.Thread(target=self._lit, daemon=True)
-                self._fil.start()
-                atexit.register(self.arrete)
+            self._arrete()
 
-    def arrete(self):
-        if self._processus and self._processus.poll() is None:
-            self._processus.terminate()
-
-    def _lit(self):
+    # ---------- lecture, dans le fil ----------
+    def _lit(self, generation):
         while True:
-            try:
-                self._processus = subprocess.Popen(
-                    ["termux-location", "-p", "gps", "-r", "updates"],
-                    stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
-            except OSError:  # termux-location absent
+            with self._condition:
+                if generation != self._generation:
+                    return  # flux arrêté
+                try:
+                    processus = subprocess.Popen(
+                        ["termux-location", "-p", "gps", "-r", "updates"],
+                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+                except OSError:  # termux-location absent
+                    processus = None
+                self._processus = processus
+            if processus is None:
                 time.sleep(2)
                 continue
             tampon = ""
             while True:
-                morceau = os.read(self._processus.stdout.fileno(), 4096)
+                morceau = os.read(processus.stdout.fileno(), 4096)
                 if not morceau:
-                    break  # fin des 30 secondes : on relance
-                tampon = self._decoupe(tampon + morceau.decode("utf-8", "replace"))
-            self._processus.wait()
+                    break  # fin des 30 secondes, ou flux arrêté
+                tampon = self._decoupe(tampon + morceau.decode("utf-8", "replace"), generation)
+            processus.wait()
             time.sleep(0.2)
 
-    def _decoupe(self, tampon):
+    def _decoupe(self, tampon, generation):
         """Extrait les positions complètes du texte reçu ; renvoie le reste.
 
         La sortie est un tableau JSON qui arrive par morceaux :
@@ -110,34 +127,46 @@ class _FluxTermux:
             except ValueError:
                 return tampon[debut:]  # objet incomplet : attendre la suite
             tampon = tampon[fin:]
-            self._recoit(msg)
+            self._recoit(msg, generation)
 
-    def _recoit(self, msg):
+    def _recoit(self, msg, generation):
         if isinstance(msg, dict) and "latitude" in msg and "longitude" in msg:
             cap = msg.get("bearing") if (msg.get("speed") or 0) > 0.4 else None
             mesure = Mesure((msg["latitude"], msg["longitude"]), cap, time.monotonic())
             with self._condition:
+                if generation != self._generation:
+                    return
                 self._derniere = mesure
                 self._numero += 1
                 self._condition.notify_all()
 
+    # ---------- utilisation ----------
     def mesures(self, fraicheur=6.0):
         """Chaque nouvelle position, dès qu'elle arrive. Si le guidage a pris
         du retard, les positions intermédiaires sont sautées : on donne
         toujours la plus récente. Une position déjà reçue depuis moins de
-        `fraicheur` secondes est donnée tout de suite."""
-        self.demarre()
+        `fraicheur` secondes est donnée tout de suite. Le flux s'arrête
+        quand plus aucune source n'est utilisée."""
         with self._condition:
+            self._clients += 1
+            if self._clients == 1:
+                self._demarre()
             recente = (self._derniere is not None
                        and time.monotonic() - self._derniere.instant < fraicheur)
             vu = self._numero - 1 if recente else self._numero
-        while True:
+        try:
+            while True:
+                with self._condition:
+                    while self._numero == vu:
+                        self._condition.wait()
+                    vu = self._numero
+                    mesure = self._derniere
+                yield mesure
+        finally:
             with self._condition:
-                while self._numero == vu:
-                    self._condition.wait()
-                vu = self._numero
-                mesure = self._derniere
-            yield mesure
+                self._clients -= 1
+                if self._clients == 0:
+                    self._arrete()
 
 
 _flux_termux = _FluxTermux()

@@ -96,7 +96,9 @@ class Application:
               + (f", {len(self.plan.ignores)} ignorées car trop loin d'une rue)" if self.plan.ignores else ")"))
         if self.args.position != "simulation":
             print("  (Recherche de la position GPS…)")
-            premiere = next(gpsd() if self.args.position == "gpsd" else termux())
+            source = gpsd() if self.args.position == "gpsd" else termux()
+            premiere = next(source)
+            source.close()  # pas de GPS en arrière-plan pendant le dialogue
             self.position = premiere.position
             print(f"  (Position trouvée : à {metres(geo.distance(self.position, self.plan.point(self.plan.plus_proche(self.position)[0])))} d'une rue de la carte)")
         if self.args.position == "simulation":
@@ -211,6 +213,9 @@ class Application:
                     return
         except KeyboardInterrupt:
             self.dit("Guidage arrêté.")
+        finally:
+            if hasattr(source, "close"):
+                source.close()  # arrête le GPS en arrière-plan dès la fin du guidage
 
 
 def arguments(liste=None):
