@@ -7,6 +7,7 @@ Fonctionne sur PC sans le casque. Exemples :
 """
 import argparse
 import os
+import shutil
 
 import geo
 from collections import Counter
@@ -221,8 +222,11 @@ def arguments(liste=None):
                    help="micro = Whisper ; texte = taper les commandes ; "
                         "termux = micro du téléphone + Whisper (whisper.cpp), en français ; "
                         "android = reconnaissance vocale d'Android (en anglais seulement)")
-    p.add_argument("--voix", choices=["gtts", "hors_ligne", "texte", "fichier"], default="gtts",
-                   help="fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
+    p.add_argument("--voix", choices=["gtts", "android", "hors_ligne", "texte", "fichier"],
+                   default="android" if shutil.which("termux-tts-speak") else "gtts",
+                   help="android = voix d'Android, sans Internet (défaut sur le téléphone) ; "
+                        "gtts = voix Google (défaut sur PC) ; "
+                        "fichier = phrases gTTS enregistrées en mp3 (utile sur un serveur sans haut-parleur)")
     p.add_argument("--modele", default="tiny", help="taille de Whisper : tiny, base, small")
     p.add_argument("--whisper-cpp", default="~/whisper.cpp",
                    help="--entree termux : dossier de whisper.cpp")

@@ -131,7 +131,7 @@ class WhisperCpp:
 
 
 class Parole:
-    """Dit une phrase. mode : « gtts », « hors_ligne », « texte » ou « fichier »
+    """Dit une phrase. mode : « gtts », « android », « hors_ligne », « texte » ou « fichier »
     (phrases gTTS enregistrées en mp3 dans `sortie`, pour un serveur sans haut-parleur)."""
 
     def __init__(self, mode="gtts", dossier_cache=None, sortie="voix_sortie"):
@@ -186,6 +186,10 @@ class Parole:
             return
         if self.mode == "fichier":
             self._fichier(texte)
+            return
+        if self.mode == "android" and shutil.which("termux-tts-speak"):
+            # voix d'Android (Termux) : sans Internet, elle parle tout de suite
+            subprocess.run(["termux-tts-speak", "-l", "fr", texte], check=False)
             return
         if self.mode == "gtts" and self._gtts(texte):
             return
