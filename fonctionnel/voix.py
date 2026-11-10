@@ -144,6 +144,7 @@ class Parole:
         self._verrou = threading.Lock()
         self._en_attente = None    # phrases qui attendent d'être dites en fond
         self._fil = None
+        self._android = None       # termux-tts-speak gardé ouvert pendant le guidage
 
     def dit(self, texte):
         """Dit la phrase et attend la fin (après les phrases dites en fond)."""
@@ -155,14 +156,55 @@ class Parole:
         pendant qu'elles sont fabriquées et jouées. Si des phrases attendent
         encore leur tour, les nouvelles les remplacent : elles correspondent
         à une position plus récente."""
+        if self.mode == "android" and shutil.which("termux-tts-speak"):
+            self._android_en_fond(phrases)
+            return
         with self._verrou:
             self._en_attente = list(phrases)
             if self._fil is None:
                 self._fil = threading.Thread(target=self._parle_en_fond, daemon=True)
                 self._fil.start()
 
+    def _android_en_fond(self, phrases):
+        """Voix d'Android pendant le guidage. Lancé sans texte, termux-tts-speak
+        lit les phrases une par ligne et les dit au fur et à mesure : on le
+        garde ouvert, le moteur de voix n'est créé qu'une fois et chaque
+        consigne est dite aussitôt (au lieu de recréer le moteur à chaque
+        phrase, ce qui prend plusieurs secondes)."""
+        for texte in phrases:
+            print(f"  SmartGuide : {texte}")
+            ligne = " ".join(texte.split()) + "\n"
+            for essai in range(2):
+                if self._android is None or self._android.poll() is not None:
+                    self._android = subprocess.Popen(
+                        ["termux-tts-speak", "-l", "fr"], stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        text=True, encoding="utf-8")
+                try:
+                    self._android.stdin.write(ligne)
+                    self._android.stdin.flush()
+                    break
+                except OSError:  # voix fermée entre-temps : la rouvrir
+                    self._android = None
+
+    def _ferme_android(self):
+        """Fin du guidage : ferme la voix d'Android et attend qu'elle ait dit
+        toutes les phrases reçues."""
+        processus, self._android = self._android, None
+        if processus is None:
+            return
+        try:
+            processus.stdin.close()
+        except OSError:
+            pass
+        try:
+            processus.wait(timeout=60)
+        except subprocess.TimeoutExpired:
+            processus.kill()
+
     def attend(self):
         """Attend que les phrases dites en fond soient finies."""
+        self._ferme_android()
         while True:
             with self._verrou:
                 fil = self._fil
