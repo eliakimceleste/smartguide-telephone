@@ -106,6 +106,8 @@ class Application:
             print(f"  (Marche simulée : départ de {self.lieux[depart]['nom']} ; option --depart pour changer)")
         if self.args.voix == "fichier":
             print(f"  (Les phrases sont enregistrées en mp3 dans {self.parole.sortie})")
+        if self.args.entree == "menu":
+            return self.boucle_menu()
         self.dit("Bonjour, je suis SmartGuide. Dites-moi où vous voulez aller.")
         while True:
             try:
@@ -174,6 +176,73 @@ class Application:
                  else f"Vous êtes à {metres(d)} de {self.lieux[proche]['nom']}.")
         return texte + (f" Vous êtes sur {rue}." if rue else "")
 
+    # ---------- menu des destinations (au bouton, sans la voix de l'utilisateur) ----------
+    DELAI_MENU = 10  # secondes sans appui avant de fermer le menu
+
+    def annonce(self, *phrases):
+        """Phrases du menu : dites tout de suite, sans bloquer la lecture du
+        bouton. Les phrases d'un même appel sont toujours dites ensemble."""
+        self.dernier = phrases[-1]
+        self.parole.dit_en_fond(list(phrases))
+
+    def boucle_menu(self):
+        from bouton import BoutonClavier
+        bouton = BoutonClavier()
+        print("  (Bouton imité au clavier : Entrée = appui court ; l puis Entrée = appui long ; "
+              "q puis Entrée = quitter)")
+        self.annonce("Bonjour, je suis SmartGuide. Appui long pour choisir une destination.")
+        while True:
+            appui = bouton.attend()
+            if appui == "quitter":
+                self.dit("Au revoir.")
+                return
+            if appui == "court":
+                self.annonce("Appui long pour choisir une destination.")
+                continue
+            lieu = self.menu_destinations(bouton)
+            if lieu == "quitter":
+                self.dit("Au revoir.")
+                return
+            if lieu:
+                self.annonce(f"Vous avez choisi {self.lieux[lieu]['nom']}. Je calcule l'itinéraire.")
+                try:
+                    self.guide(lieu)
+                except KeyboardInterrupt:
+                    self.dit("Guidage arrêté.")
+                self.parole.attend()  # « Destination atteinte » est toujours dite en entier
+                bouton.vide()
+                self.annonce("Appui long pour choisir une nouvelle destination.")
+
+    def ordre_menu(self):
+        """La maison d'abord, puis les lieux du plus proche au plus loin."""
+        autres = sorted((i for i in self.lieux if i != "maison"),
+                        key=lambda i: geo.distance(self.position, self.plan.point(i)))
+        return (["maison"] if "maison" in self.lieux else []) + autres
+
+    def menu_destinations(self, bouton):
+        """Lit les lieux un par un ; renvoie le lieu choisi, None si le menu se
+        ferme, « quitter » pour arrêter le programme."""
+        lieux = self.ordre_menu()
+        avant = ["Menu des destinations. Appui court : lieu suivant. Appui long : choisir."]
+        i = 0
+        while True:
+            lieu = lieux[i]
+            d = geo.distance(self.position, self.plan.point(lieu))
+            self.annonce(*avant, f"{self.lieux[lieu]['nom']}, {metres(d)}.")
+            avant = []
+            appui = bouton.attend(self.DELAI_MENU)
+            if appui is None:
+                self.annonce("Menu fermé.")
+                return None
+            if appui == "quitter":
+                return "quitter"
+            if appui == "long":
+                return lieu
+            i += 1
+            if i == len(lieux):
+                avant = ["Retour au début de la liste."]
+                i = 0
+
     # ---------- guidage ----------
     def guide(self, lieu):
         itineraire = self.plan.itineraire(self.position, lieu)
@@ -223,8 +292,9 @@ def arguments(liste=None):
     p.add_argument("--carte", default=os.path.join(ICI, "exemple", "carte_exemple.json"),
                    help="carte OpenStreetMap téléchargée avec osm.py")
     p.add_argument("--destinations", help="optionnel : fichier de lieux absents d'OpenStreetMap")
-    p.add_argument("--entree", choices=["micro", "texte", "android", "termux"], default="micro",
-                   help="micro = Whisper ; texte = taper les commandes ; "
+    p.add_argument("--entree", choices=["micro", "texte", "android", "termux", "menu"], default="micro",
+                   help="menu = choisir la destination au bouton (imité au clavier), sans parler ; "
+                        "micro = Whisper ; texte = taper les commandes ; "
                         "termux = micro du téléphone + Whisper (whisper.cpp), en français ; "
                         "android = reconnaissance vocale d'Android (en anglais seulement)")
     p.add_argument("--voix", choices=["gtts", "android", "hors_ligne", "texte", "fichier"],
