@@ -177,8 +177,6 @@ class Application:
         return texte + (f" Vous êtes sur {rue}." if rue else "")
 
     # ---------- menu des destinations (au bouton, sans la voix de l'utilisateur) ----------
-    DELAI_MENU = 10  # secondes sans appui avant de fermer le menu
-
     def annonce(self, *phrases):
         """Phrases du menu : dites tout de suite, sans bloquer la lecture du
         bouton. Les phrases d'un même appel sont toujours dites ensemble."""
@@ -220,23 +218,27 @@ class Application:
         return (["maison"] if "maison" in self.lieux else []) + autres
 
     def menu_destinations(self, bouton):
-        """Lit les lieux un par un ; renvoie le lieu choisi, None si le menu se
-        ferme, « quitter » pour arrêter le programme."""
-        lieux = self.ordre_menu()
+        """Lit les lieux un par un ; renvoie le lieu choisi, None si
+        l'utilisateur ferme le menu, « quitter » pour arrêter le programme.
+        Le menu ne se ferme jamais tout seul : « Fermer le menu » est le
+        dernier élément de la liste et se choisit comme un lieu."""
+        lieux = self.ordre_menu() + [None]  # None = « Fermer le menu »
         avant = ["Menu des destinations. Appui court : lieu suivant. Appui long : choisir."]
         i = 0
         while True:
             lieu = lieux[i]
-            d = geo.distance(self.position, self.plan.point(lieu))
-            self.annonce(*avant, f"{self.lieux[lieu]['nom']}, {metres(d)}.")
+            if lieu is None:
+                self.annonce(*avant, "Fermer le menu.")
+            else:
+                d = geo.distance(self.position, self.plan.point(lieu))
+                self.annonce(*avant, f"{self.lieux[lieu]['nom']}, {metres(d)}.")
             avant = []
-            appui = bouton.attend(self.DELAI_MENU)
-            if appui is None:
-                self.annonce("Menu fermé.")
-                return None
+            appui = bouton.attend()
             if appui == "quitter":
                 return "quitter"
             if appui == "long":
+                if lieu is None:
+                    self.annonce("Menu fermé.")
                 return lieu
             i += 1
             if i == len(lieux):
